@@ -83,7 +83,7 @@ function renderHistory(mode) {
       cell.setAttribute('aria-label', `${index + 1}번째 자모 ${row.states[index]}`);
       if (mode === 'helper') {
         cell.addEventListener('click', () => {
-          row.states[index] = { green: 'yellow', yellow: 'gray', gray: 'green' }[row.states[index]];
+          row.states[index] = { gray: 'yellow', yellow: 'green', green: 'gray' }[row.states[index]];
           render();
         });
       }
@@ -156,7 +156,7 @@ function bindInput(mode, input, index) {
   input.addEventListener('input', () => {
     const state = stateOf(mode); setActiveInput(mode, index);
     input.value = [...input.value].find((character) => VALID_JAMO.has(character)) || '';
-    state.states[index] = 'green';
+    state.states[index] = mode === 'game' ? 'green' : 'gray';
     if (mode === 'game') input.classList.remove('green', 'yellow', 'gray'); else updateState(mode, index);
     render();
     if (input.value && index < state.inputs.length - 1) { state.inputs[index + 1].focus(); setActiveInput(mode, index + 1); }
@@ -165,7 +165,7 @@ function bindInput(mode, input, index) {
     const state = stateOf(mode);
     setActiveInput(mode, index);
     if (mode === 'game' || !input.value) return;
-    input.select(); state.states[index] = { green: 'yellow', yellow: 'gray', gray: 'green' }[state.states[index]];
+    input.select(); state.states[index] = { gray: 'yellow', yellow: 'green', green: 'gray' }[state.states[index]];
     updateState(mode, index); render();
   });
   input.addEventListener('keydown', (event) => {
@@ -178,7 +178,7 @@ function buildInputs(mode) {
   state.inputsContainer.style.setProperty('--length', activeLength);
   for (let index = 0; index < activeLength; index += 1) {
     const input = document.createElement('input'); input.className = 'jamo-input'; input.maxLength = 1; input.inputMode = 'text'; input.autocomplete = 'off'; input.setAttribute('aria-label', `${index + 1}번째 자모`);
-    state.inputs.push(input); state.states.push('green'); state.inputsContainer.append(input); bindInput(mode, input, index);
+    state.inputs.push(input); state.states.push(mode === 'game' ? 'green' : 'gray'); state.inputsContainer.append(input); bindInput(mode, input, index);
   }
 }
 function getGameCandidates() {
@@ -186,19 +186,46 @@ function getGameCandidates() {
   return words.filter((word) => !excludedWords.has(word));
 }
 function chooseTarget() {
-  const state = modes.game; const candidates = getGameCandidates().filter((word) => decomposeWord(word).length === activeLength);
+  const state = modes.game;
+  if (state.targetWord || state.over) return;
+  const candidates = getGameCandidates().filter((word) => decomposeWord(word).length === activeLength);
   state.targetWord = candidates[Math.floor(Math.random() * candidates.length)] || null;
 }
 function getFeedback(guess, target) {
-  const feedback = Array(guess.length).fill('gray'); const remaining = new Map();
-  guess.forEach((jamo, index) => { if (jamo === target[index]) feedback[index] = 'green'; else remaining.set(target[index], (remaining.get(target[index]) || 0) + 1); });
-  guess.forEach((jamo, index) => { if (feedback[index] === 'green') return; const count = remaining.get(jamo) || 0; if (count > 0) { feedback[index] = 'yellow'; remaining.set(jamo, count - 1); } });
+  const feedback = Array(guess.length).fill('gray');
+  const usedTarget = Array(target.length).fill(false);
+
+  guess.forEach((jamo, index) => {
+    if (jamo === target[index]) {
+      feedback[index] = 'green';
+      usedTarget[index] = true;
+    }
+  });
+  guess.forEach((jamo, index) => {
+    if (feedback[index] === 'green') return;
+    const targetIndex = target.findIndex((targetJamo, index) => !usedTarget[index] && targetJamo === jamo);
+    if (targetIndex !== -1) {
+      feedback[index] = 'yellow';
+      usedTarget[targetIndex] = true;
+    }
+  });
   return feedback;
 }
+function showGameSuccessMessage() {
+  const state = modes.game;
+  state.inputs.forEach((input) => { input.disabled = true; });
+  [...'정답입니다'].forEach((character, index) => {
+    if (!state.inputs[index]) return;
+    state.inputs[index].value = character;
+    state.inputs[index].disabled = true;
+    state.inputs[index].classList.add('green');
+  });
+}
+
 function submitGameGuess(values) {
   const state = modes.game; if (!state.targetWord || state.over) return;
   const feedback = getFeedback(values, decomposeWord(state.targetWord)); state.historyRows.push({ values: [...values], states: feedback }); state.attempts += 1; buildInputs('game');
-  if (feedback.every((value) => value === 'green')) { state.over = true; state.message = `정답입니다! ${state.attempts}번 만에 맞혔습니다.`; }
+  if (feedback.every((value) => value === 'green')) { state.over = true; state.message = `정답입니다! ${state.attempts}번 만에 맞혔습니다.`; showGameSuccessMessage(); }
   else if (state.attempts >= 6) { state.over = true; state.message = `게임 종료! 정답은 ${state.targetWord}입니다.`; }
   if (!state.over) state.inputs[0]?.focus(); render();
 }
@@ -209,7 +236,7 @@ function submitCurrent(mode) {
 }
 function fillCurrent(word) {
   const state = modes.helper; const values = decomposeWord(word); if (values.length !== activeLength) return;
-  values.forEach((value, index) => { state.inputs[index].value = value; state.states[index] = 'green'; updateState('helper', index); });
+  values.forEach((value, index) => { state.inputs[index].value = value; state.states[index] = 'gray'; updateState('helper', index); });
   setActiveInput('helper', 0); state.inputs[0]?.focus(); render();
 }
 function startNewGame() {
@@ -218,6 +245,7 @@ function startNewGame() {
   state.attempts = 0;
   state.over = false;
   state.message = '';
+  state.targetWord = null;
   chooseTarget();
   buildInputs('game');
   state.inputs[0]?.focus();
@@ -227,26 +255,31 @@ function startNewGame() {
 function surrenderGame() {
   const state = modes.game;
   if (!state.targetWord) return;
+  const answer = state.targetWord;
   state.over = true;
-  state.message = `포기했습니다. 정답은 ${state.targetWord}입니다.`;
+  state.message = `포기했습니다. 정답은 ${answer}입니다.`;
+  state.targetWord = null;
   buildInputs('game');
   render();
 }
 
 function setMode(game) {
-  activeMode = game ? 'game' : 'helper'; helperPanel.hidden = game; gamePanel.hidden = !game;
-  if (game) { chooseTarget(); render(); } else render();
+  activeMode = game ? 'game' : 'helper';
+  helperPanel.hidden = game;
+  gamePanel.hidden = !game;
+  if (game && !modes.game.targetWord && !modes.game.over) chooseTarget();
+  render();
 }
 async function loadWords(length) {
   const currentLoad = ++loadId; words = []; render();
-  try { const response = await fetch(`./${length}자모_단어목록.txt`); if (!response.ok) throw new Error(); const text = await response.text(); if (currentLoad !== loadId) return; words = text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean); if (activeMode === 'game' && !modes.game.targetWord) chooseTarget(); render(); }
+  try { const response = await fetch(`./${length}자모_단어목록.txt`); if (!response.ok) throw new Error(); const text = await response.text(); if (currentLoad !== loadId) return; words = text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean); if (activeMode === 'game' && !modes.game.targetWord && !modes.game.over) chooseTarget(); render(); }
   catch { if (currentLoad !== loadId) return; stateOf().status.textContent = '단어 목록을 불러오지 못했습니다.'; }
 }
 function setLength(length) { activeLength = length; modes.helper.historyRows = []; modes.game.historyRows = []; modes.game.attempts = 0; modes.game.over = false; modes.game.message = ''; modes.game.targetWord = null; buildInputs('helper'); buildInputs('game'); lengthOptions.forEach((option) => option.classList.toggle('active', Number(option.dataset.length) === length)); loadWords(length); }
 
-document.addEventListener('keydown', (event) => { const state = stateOf(); const index = state.activeInputIndex; if (index === null || event.key.length !== 1 || !VALID_JAMO.has(event.key) || event.target === state.inputs[index]) return; event.preventDefault(); state.inputs[index].value = event.key; state.states[index] = 'green'; if (activeMode === 'game') state.inputs[index].classList.remove('green', 'yellow', 'gray'); else updateState(activeMode, index); render(); if (index < state.inputs.length - 1) { state.inputs[index + 1].focus(); setActiveInput(activeMode, index + 1); } }, true);
-document.addEventListener('beforeinput', (event) => { const state = stateOf(); const index = state.activeInputIndex; if (index === null || event.inputType !== 'insertText' || !VALID_JAMO.has(event.data || '') || event.target === state.inputs[index]) return; event.preventDefault(); state.inputs[index].value = event.data; state.states[index] = 'green'; if (activeMode === 'game') state.inputs[index].classList.remove('green', 'yellow', 'gray'); else updateState(activeMode, index); render(); if (index < state.inputs.length - 1) { state.inputs[index + 1].focus(); setActiveInput(activeMode, index + 1); } }, true);
-excludeParts.addEventListener('change', () => { if (activeMode === 'game') { modes.game.historyRows = []; modes.game.attempts = 0; modes.game.over = false; modes.game.message = ''; chooseTarget(); buildInputs('game'); } render(); });
+document.addEventListener('keydown', (event) => { const state = stateOf(); const index = state.activeInputIndex; if (index === null || event.key.length !== 1 || !VALID_JAMO.has(event.key) || event.target === state.inputs[index]) return; event.preventDefault(); state.inputs[index].value = event.key; state.states[index] = activeMode === 'game' ? 'green' : 'gray'; if (activeMode === 'game') state.inputs[index].classList.remove('green', 'yellow', 'gray'); else updateState(activeMode, index); render(); if (index < state.inputs.length - 1) { state.inputs[index + 1].focus(); setActiveInput(activeMode, index + 1); } }, true);
+document.addEventListener('beforeinput', (event) => { const state = stateOf(); const index = state.activeInputIndex; if (index === null || event.inputType !== 'insertText' || !VALID_JAMO.has(event.data || '') || event.target === state.inputs[index]) return; event.preventDefault(); state.inputs[index].value = event.data; state.states[index] = activeMode === 'game' ? 'green' : 'gray'; if (activeMode === 'game') state.inputs[index].classList.remove('green', 'yellow', 'gray'); else updateState(activeMode, index); render(); if (index < state.inputs.length - 1) { state.inputs[index + 1].focus(); setActiveInput(activeMode, index + 1); } }, true);
+excludeParts.addEventListener('change', () => { if (activeMode === 'game') { modes.game.historyRows = []; modes.game.attempts = 0; modes.game.over = false; modes.game.message = ''; modes.game.targetWord = null; chooseTarget(); buildInputs('game'); } render(); });
 gameModeToggle.addEventListener('change', () => setMode(gameModeToggle.checked));
 lengthOptions.forEach((option) => option.addEventListener('click', () => setLength(Number(option.dataset.length))));
 Object.values(modes).forEach((state) => {
@@ -269,6 +302,6 @@ buildInputs('helper'); buildInputs('game'); loadWords(activeLength);
 fetch('./제외품사_단어목록.txt').then((response) => response.ok ? response.text() : Promise.reject()).then((text) => {
   excludedWords = new Set(text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean));
   excludedLoaded = true;
-  if (activeMode === 'game' && !modes.game.targetWord) chooseTarget();
+  if (activeMode === 'game' && !modes.game.targetWord && !modes.game.over) chooseTarget();
   render();
 }).catch(() => {});
