@@ -1,7 +1,9 @@
 const inputContainer = document.querySelector('.inputs');
+const historyContainer = document.querySelector('#history');
 const lengthOptions = [...document.querySelectorAll('.length-option')];
 const results = document.querySelector('#results');
 const status = document.querySelector('#status');
+const submitButton = document.querySelector('#submit');
 const clearButton = document.querySelector('#clear');
 const excludeParts = document.querySelector('#exclude-parts');
 
@@ -9,11 +11,13 @@ const INITIALS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ',
 const VOWELS = ['ㅏ', 'ㅏㅣ', 'ㅑ', 'ㅑㅣ', 'ㅓ', 'ㅓㅣ', 'ㅕ', 'ㅕㅣ', 'ㅗ', 'ㅗㅏ', 'ㅗㅏㅣ', 'ㅗㅣ', 'ㅛ', 'ㅜ', 'ㅜㅓ', 'ㅜㅓㅣ', 'ㅜㅣ', 'ㅠ', 'ㅡ', 'ㅡㅣ', 'ㅣ'];
 const FINALS = ['', 'ㄱ', 'ㄱㄱ', 'ㄱㅅ', 'ㄴ', 'ㄴㅈ', 'ㄴㅎ', 'ㄷ', 'ㄹ', 'ㄹㄱ', 'ㄹㅁ', 'ㄹㅂ', 'ㄹㅅ', 'ㄹㅌ', 'ㄹㅍ', 'ㄹㅎ', 'ㅁ', 'ㅂ', 'ㅂㅅ', 'ㅅ', 'ㅅㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 const VALID_JAMO = new Set([...INITIALS, ...VOWELS.flatMap((vowel) => [...vowel]), ...FINALS.flatMap((final) => [...final])]);
+const INITIAL_EXPANSION = { 'ㄲ': 'ㄱㄱ', 'ㄸ': 'ㄷㄷ', 'ㅃ': 'ㅂㅂ', 'ㅆ': 'ㅅㅅ', 'ㅉ': 'ㅈㅈ' };
 
 let activeLength = 5;
 let inputs = [];
 let states = [];
 let activeInputIndex = null;
+let historyRows = [];
 let words = [];
 let excludedWords = new Set();
 let loadId = 0;
@@ -26,15 +30,66 @@ function decomposeWord(word) {
     const initial = Math.floor(syllable / 588);
     const vowel = Math.floor((syllable % 588) / 28);
     const final = syllable % 28;
-    const initialJamo = INITIALS[initial];
-    decomposed.push(...({ 'ㄲ': 'ㄱㄱ', 'ㄸ': 'ㄷㄷ', 'ㅃ': 'ㅂㅂ', 'ㅆ': 'ㅅㅅ', 'ㅉ': 'ㅈㅈ' }[initialJamo] || initialJamo));
+    decomposed.push(...(INITIAL_EXPANSION[INITIALS[initial]] || INITIALS[initial]));
     decomposed.push(...VOWELS[vowel]);
     decomposed.push(...FINALS[final]);
   }
   return decomposed;
 }
 
+function rowMatches(decomposed, row) {
+  const requiredCounts = new Map();
+  const grayJamos = new Set();
+
+  for (const [index, condition] of row.values.entries()) {
+    if (!condition) continue;
+    const state = row.states[index];
+    if (state === 'green' && decomposed[index] !== condition) return false;
+    if (state === 'yellow' && decomposed[index] === condition) return false;
+    if (state === 'gray') {
+      grayJamos.add(condition);
+      continue;
+    }
+    requiredCounts.set(condition, (requiredCounts.get(condition) || 0) + 1);
+  }
+
+  for (const [jamo, requiredCount] of requiredCounts) {
+    const actualCount = decomposed.filter((value) => value === jamo).length;
+    if (actualCount < requiredCount) return false;
+  }
+
+  for (const jamo of grayJamos) {
+    const actualCount = decomposed.filter((value) => value === jamo).length;
+    if (actualCount > (requiredCounts.get(jamo) || 0)) return false;
+  }
+
+  return true;
+}
+
+function renderHistory() {
+  historyContainer.replaceChildren();
+  historyContainer.style.setProperty('--length', activeLength);
+  historyRows.forEach((row) => {
+    const item = document.createElement('div');
+    item.className = 'history-row';
+    row.values.forEach((value, index) => {
+      const cell = document.createElement('div');
+      cell.className = `history-cell ${row.states[index]}`;
+      cell.textContent = value;
+      const stateName = { green: '초록', yellow: '노랑', gray: '회색' }[row.states[index]];
+      cell.setAttribute('aria-label', `${index + 1}번째 자모 ${stateName}`);
+      cell.addEventListener('click', () => {
+        row.states[index] = { green: 'yellow', yellow: 'gray', gray: 'green' }[row.states[index]];
+        render();
+      });
+      item.append(cell);
+    });
+    historyContainer.append(item);
+  });
+}
+
 function render() {
+  renderHistory();
   const conditions = inputs.map((input) => input.value);
   const hasConditions = conditions.some(Boolean);
   const availableWords = words.map((word) => ({ word, decomposed: decomposeWord(word) })).filter(({ word, decomposed }) => {
@@ -42,15 +97,12 @@ function render() {
     return decomposed.length === activeLength;
   });
   const matches = availableWords.filter(({ decomposed }) => {
-    if (!hasConditions && new Set(decomposed).size !== decomposed.length) return false;
-    return conditions.every((condition, index) => {
-      if (!condition) return true;
-      if (states[index] === 'green') return decomposed[index] === condition;
-      return decomposed[index] !== condition && decomposed.some((jamo, jamoIndex) => jamoIndex !== index && jamo === condition);
-    });
+    if (historyRows.some((row) => !rowMatches(decomposed, row))) return false;
+    if (!hasConditions && historyRows.length === 0 && new Set(decomposed).size !== decomposed.length) return false;
+    return !hasConditions || rowMatches(decomposed, { values: conditions, states });
   });
 
-  if (!hasConditions) {
+  if (!hasConditions && historyRows.length === 0) {
     const frequency = new Map();
     availableWords.forEach(({ decomposed }) => new Set(decomposed).forEach((jamo) => frequency.set(jamo, (frequency.get(jamo) || 0) + 1)));
     matches.sort((a, b) => {
@@ -60,7 +112,6 @@ function render() {
   }
 
   const matchesToShow = matches.slice(0, 10).map(({ word }) => word);
-
   results.replaceChildren();
   if (!matchesToShow.length) {
     const empty = document.createElement('div');
@@ -68,12 +119,15 @@ function render() {
     empty.textContent = words.length ? '조건에 맞는 단어가 없습니다.' : '단어 목록을 불러오는 중...';
     results.append(empty);
   } else {
-    for (const word of matchesToShow) {
-      const item = document.createElement('div');
+    matchesToShow.forEach((word) => {
+      const item = document.createElement('button');
+      item.type = 'button';
       item.className = 'result';
       item.textContent = word;
+      item.title = '클릭해서 현재 입력칸에 채우기';
+      item.addEventListener('click', () => fillCurrent(word));
       results.append(item);
-    }
+    });
   }
   status.textContent = words.length ? `${matchesToShow.length}개 표시 (최대 10개)` : '단어 목록을 불러오는 중...';
 }
@@ -86,8 +140,10 @@ function setActiveInput(index) {
 function updateState(index) {
   const input = inputs[index];
   input.classList.toggle('yellow', states[index] === 'yellow');
+  input.classList.toggle('gray', states[index] === 'gray');
   input.classList.toggle('green', states[index] === 'green' && Boolean(input.value));
-  input.setAttribute('aria-label', `${index + 1}번째 자모 ${states[index] === 'yellow' ? '노랑' : '초록'}`);
+  const stateName = { green: '초록', yellow: '노랑', gray: '회색' }[states[index]];
+  input.setAttribute('aria-label', `${index + 1}번째 자모 ${stateName}`);
 }
 
 function bindInput(input, index) {
@@ -97,8 +153,7 @@ function bindInput(input, index) {
   });
   input.addEventListener('input', () => {
     setActiveInput(index);
-    const value = [...input.value].find((character) => VALID_JAMO.has(character));
-    input.value = value || '';
+    input.value = [...input.value].find((character) => VALID_JAMO.has(character)) || '';
     states[index] = 'green';
     updateState(index);
     render();
@@ -111,20 +166,24 @@ function bindInput(input, index) {
     setActiveInput(index);
     if (!input.value) return;
     input.select();
-    states[index] = states[index] === 'green' ? 'yellow' : 'green';
+    states[index] = { green: 'yellow', yellow: 'gray', gray: 'green' }[states[index]];
     updateState(index);
     render();
   });
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Backspace' && !input.value && index > 0) inputs[index - 1].focus();
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitCurrent();
+    } else if (event.key === 'Backspace' && !input.value && index > 0) {
+      inputs[index - 1].focus();
+    }
   });
 }
 
 function applyJamoToActiveInput(character) {
   if (activeInputIndex === null) return;
-  const input = inputs[activeInputIndex];
-  input.value = character;
   const targetIndex = activeInputIndex;
+  inputs[targetIndex].value = character;
   states[targetIndex] = 'green';
   updateState(targetIndex);
   render();
@@ -148,15 +207,13 @@ document.addEventListener('beforeinput', (event) => {
   applyJamoToActiveInput(event.data);
 }, true);
 
-function setLength(length) {
-  activeLength = length;
-  activeInputIndex = null;
+function buildInputs() {
   inputs = [];
   states = [];
+  activeInputIndex = null;
   inputContainer.replaceChildren();
-  inputContainer.style.setProperty('--length', length);
-  lengthOptions.forEach((option) => option.classList.toggle('active', Number(option.dataset.length) === length));
-  for (let index = 0; index < length; index += 1) {
+  inputContainer.style.setProperty('--length', activeLength);
+  for (let index = 0; index < activeLength; index += 1) {
     const input = document.createElement('input');
     input.className = 'jamo-input';
     input.maxLength = 1;
@@ -168,6 +225,43 @@ function setLength(length) {
     inputContainer.append(input);
     bindInput(input, index);
   }
+}
+
+function setLength(length) {
+  activeLength = length;
+  historyRows = [];
+  buildInputs();
+  lengthOptions.forEach((option) => option.classList.toggle('active', Number(option.dataset.length) === length));
+}
+
+function addHistory(values, wordStates) {
+  if (values.length !== activeLength) return;
+  historyRows.push({ values, states: wordStates });
+  buildInputs();
+  inputs[0]?.focus();
+  render();
+}
+
+function fillCurrent(word) {
+  const values = decomposeWord(word);
+  if (values.length !== activeLength) return;
+  values.forEach((value, index) => {
+    inputs[index].value = value;
+    states[index] = 'green';
+    updateState(index);
+  });
+  setActiveInput(0);
+  inputs[0]?.focus();
+  render();
+}
+
+function submitCurrent() {
+  const values = inputs.map((input) => input.value);
+  if (values.some((value) => !value)) {
+    status.textContent = '모든 자모를 입력한 뒤 제출하세요.';
+    return;
+  }
+  addHistory(values, [...states]);
 }
 
 async function loadWords(length) {
@@ -189,35 +283,26 @@ async function loadWords(length) {
 }
 
 excludeParts.addEventListener('change', render);
-
-lengthOptions.forEach((option) => {
-  option.addEventListener('click', () => {
-    const length = Number(option.dataset.length);
-    setLength(length);
-    loadWords(length);
-  });
-});
-
+submitButton.addEventListener('click', submitCurrent);
+lengthOptions.forEach((option) => option.addEventListener('click', () => {
+  const length = Number(option.dataset.length);
+  setLength(length);
+  loadWords(length);
+}));
 clearButton.addEventListener('click', () => {
-  inputs.forEach((input, index) => {
-    input.value = '';
-    states[index] = 'green';
-    updateState(index);
-  });
+  historyRows = [];
+  buildInputs();
   inputs[0]?.focus();
   render();
 });
 
 fetch('./제외품사_단어목록.txt')
-  .then((response) => {
-    if (!response.ok) throw new Error('제외 품사 목록을 불러오지 못했습니다.');
-    return response.text();
-  })
+  .then((response) => response.ok ? response.text() : Promise.reject())
   .then((text) => {
     excludedWords = new Set(text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean));
     render();
   })
   .catch(() => {});
 
-setLength(activeLength);
+buildInputs();
 loadWords(activeLength);

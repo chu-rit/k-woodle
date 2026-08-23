@@ -8,6 +8,7 @@
     :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
     body { margin: 0; background: #f4f6f8; color: #17212b; }
+    .top-ad { display: flex; justify-content: center; min-height: 50px; padding-top: 8px; }
     main { width: min(100% - 32px, 560px); margin: 0 auto; padding: 28px 0 40px; }
     h1 { margin: 0; font-size: 1.55rem; }
     .description { margin: 8px 0 24px; color: #62707c; font-size: .92rem; line-height: 1.5; }
@@ -15,6 +16,11 @@
     .length-picker { display: flex; gap: 8px; margin-bottom: 16px; }
     .length-option { flex: 1; padding: 9px 8px; border: 1px solid #d6dde3; background: #f7f9fb; }
     .length-option.active { border-color: #2f80ed; background: #e8f1ff; color: #1769c2; font-weight: 700; }
+    .history { display: grid; gap: 8px; margin-bottom: 12px; }
+    .history-row { display: grid; grid-template-columns: repeat(var(--length), minmax(0, 1fr)); gap: 8px; align-items: center; }
+    .history-cell { display: grid; place-items: center; width: 100%; min-width: 0; aspect-ratio: 1; padding: 0; border: 2px solid #35a66f; border-radius: 12px; background: #dff5e9; color: #17212b; font-size: 1.55rem; font-weight: 700; line-height: 1; cursor: pointer; transition: background .15s, border-color .15s; }
+    .history-cell.yellow { border-color: #d6a900; background: #fff2b8; }
+    .history-cell.gray, .jamo-input.gray { border-color: #8b949e; background: #dfe3e6; color: #5b6570; }
     .inputs { display: grid; grid-template-columns: repeat(var(--length), minmax(0, 1fr)); gap: 8px; }
     .jamo-input { width: 100%; min-width: 0; aspect-ratio: 1; padding: 0; border: 2px solid #d6dde3; border-radius: 12px; background: #fbfcfd; color: #17212b; font-size: 1.55rem; font-weight: 700; line-height: 1; text-align: center; outline: none; transition: background .15s, border-color .15s; }
     .jamo-input.green { border-color: #35a66f; background: #dff5e9; }
@@ -29,26 +35,37 @@
     #status { color: #62707c; font-size: .88rem; }
     .results-title { margin: 28px 0 10px; font-size: 1rem; }
     #results { display: grid; gap: 8px; }
-    .result { padding: 13px 16px; border: 1px solid #e1e6eb; border-radius: 10px; background: #fff; font-size: 1.1rem; letter-spacing: .08em; }
+    .result { width: 100%; padding: 13px 16px; border: 1px solid #e1e6eb; border-radius: 10px; background: #fff; color: #17212b; font-size: 1.1rem; letter-spacing: .08em; text-align: left; }
+    .result:hover { background: #f0f6ff; border-color: #2f80ed; }
     .empty { padding: 22px 12px; color: #7b8791; text-align: center; background: #fff; border: 1px dashed #d6dde3; border-radius: 10px; }
-    @media (max-width: 380px) { main { width: min(100% - 24px, 560px); padding-top: 20px; } .panel { padding: 16px; } .jamo-input { font-size: 1.3rem; } }
+    @media (max-width: 380px) { main { width: min(100% - 24px, 560px); padding-top: 20px; } .panel { padding: 16px; } .jamo-input, .history-cell { font-size: 1.3rem; } }
   </style>
 </head>
 <body>
+  <div class="top-ad" aria-label="광고">
+    <ins class="kakao_ad_area" style="display:none;"
+      data-ad-unit="DAN-kILk8DoW0wkoyavP"
+      data-ad-width="320"
+      data-ad-height="50"></ins>
+    <script type="text/javascript" src="//t1.kakaocdn.net/kas/static/ba.min.js" async></script>
+  </div>
   <main>
     <h1>한글 Woodle 도우미</h1>
-    <p class="description">자모를 순서대로 입력하세요. 입력하면 초록색(같은 위치)이며, 입력한 칸을 누르면 노란색(다른 위치에 존재)으로 바뀝니다. 처음에는 자모가 겹치지 않는 단어를 추천합니다.</p>
     <section class="panel" aria-label="자모 검색">
       <div class="length-picker" role="group" aria-label="자모 수 선택">
         <button class="length-option active" type="button" data-length="5">5자모</button>
         <button class="length-option" type="button" data-length="6">6자모</button>
         <button class="length-option" type="button" data-length="7">7자모</button>
       </div>
+      <div id="history" class="history" aria-label="입력 내역"></div>
       <div class="inputs" style="--length: 5"></div>
       <label class="exclude-option"><input id="exclude-parts" type="checkbox" checked> 형용사·감탄사·부사·동사 제외</label>
       <div class="actions">
         <span id="status">단어 목록을 불러오는 중...</span>
-        <button id="clear" type="button">초기화</button>
+        <div>
+          <button id="submit" type="button">입력</button>
+          <button id="clear" type="button">초기화</button>
+        </div>
       </div>
     </section>
     <h2 class="results-title">추천 단어</h2>
