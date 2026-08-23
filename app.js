@@ -6,6 +6,8 @@ const status = document.querySelector('#status');
 const submitButton = document.querySelector('#submit');
 const clearButton = document.querySelector('#clear');
 const excludeParts = document.querySelector('#exclude-parts');
+const adblockWarning = document.querySelector('#adblock-warning');
+const adblockRetry = document.querySelector('#adblock-retry');
 
 const INITIALS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 const VOWELS = ['ㅏ', 'ㅏㅣ', 'ㅑ', 'ㅑㅣ', 'ㅓ', 'ㅓㅣ', 'ㅕ', 'ㅕㅣ', 'ㅗ', 'ㅗㅏ', 'ㅗㅏㅣ', 'ㅗㅣ', 'ㅛ', 'ㅜ', 'ㅜㅓ', 'ㅜㅓㅣ', 'ㅜㅣ', 'ㅠ', 'ㅡ', 'ㅡㅣ', 'ㅣ'];
@@ -282,7 +284,15 @@ async function loadWords(length) {
   }
 }
 
+function checkAdBlock() {
+  const ad = document.querySelector('.kakao_ad_area');
+  const blocked = !ad || getComputedStyle(ad).display === 'none' || ad.offsetHeight === 0;
+  adblockWarning.classList.toggle('visible', blocked);
+}
+
 excludeParts.addEventListener('change', render);
+adblockRetry.addEventListener('click', () => window.location.reload());
+window.setTimeout(checkAdBlock, 4000);
 submitButton.addEventListener('click', submitCurrent);
 lengthOptions.forEach((option) => option.addEventListener('click', () => {
   const length = Number(option.dataset.length);

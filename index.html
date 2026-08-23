@@ -9,6 +9,12 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: #f4f6f8; color: #17212b; }
     .top-ad { display: flex; justify-content: center; min-height: 50px; padding-top: 8px; }
+    .adblock-warning { display: none; position: fixed; inset: 0; z-index: 1000; place-items: center; padding: 24px; background: rgb(23 33 43 / 88%); }
+    .adblock-warning.visible { display: grid; }
+    .adblock-card { width: min(100%, 360px); padding: 28px 22px; border-radius: 16px; background: #fff; color: #17212b; text-align: center; box-shadow: 0 16px 40px rgb(0 0 0 / 25%); }
+    .adblock-card h2 { margin: 0 0 12px; font-size: 1.2rem; }
+    .adblock-card p { margin: 0; line-height: 1.6; color: #62707c; }
+    .adblock-card button { margin-top: 20px; background: #2f80ed; color: #fff; }
     main { width: min(100% - 32px, 560px); margin: 0 auto; padding: 28px 0 40px; }
     h1 { margin: 0; font-size: 1.55rem; }
     .description { margin: 8px 0 24px; color: #62707c; font-size: .92rem; line-height: 1.5; }
@@ -42,6 +48,13 @@
   </style>
 </head>
 <body>
+  <div id="adblock-warning" class="adblock-warning" role="dialog" aria-modal="true" aria-labelledby="adblock-title">
+    <div class="adblock-card">
+      <h2 id="adblock-title">광고 차단기가 감지되었습니다</h2>
+      <p>광고 차단기를 해제해야 이 프로그램을 사용할 수 있습니다.</p>
+      <button id="adblock-retry" type="button">다시 확인</button>
+    </div>
+  </div>
   <div class="top-ad" aria-label="광고">
     <ins class="kakao_ad_area" style="display:none;"
       data-ad-unit="DAN-kILk8DoW0wkoyavP"
