@@ -8,7 +8,7 @@
     :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
     body { margin: 0; background: #f4f6f8; color: #17212b; }
-    .top-ad { display: flex; justify-content: center; min-height: 50px; padding-top: 8px; }
+    .top-ad { display: flex; justify-content: center; width: 100%; min-height: 50px; padding-top: 8px; overflow: hidden; }
     .adblock-warning { display: none; position: fixed; inset: 0; z-index: 1000; place-items: center; padding: 24px; background: rgb(23 33 43 / 88%); }
     .adblock-warning.visible { display: grid; }
     .adblock-card { width: min(100%, 360px); padding: 28px 22px; border-radius: 16px; background: #fff; color: #17212b; text-align: center; box-shadow: 0 16px 40px rgb(0 0 0 / 25%); }
@@ -56,7 +56,7 @@
     </div>
   </div>
   <div class="top-ad" aria-label="광고">
-    <ins class="kakao_ad_area" style="display:none;"
+    <ins class="kakao_ad_area" style="display:none;width:100%;max-width:320px;"
       data-ad-unit="DAN-kILk8DoW0wkoyavP"
       data-ad-width="320"
       data-ad-height="50"></ins>
