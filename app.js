@@ -24,8 +24,8 @@ const lengthOptions = [...document.querySelectorAll('.length-option')];
 const resultsTitle = document.querySelector('#results-title');
 const results = document.querySelector('#results');
 const excludeParts = document.querySelector('#exclude-parts');
-const adblockWarning = document.querySelector('#adblock-warning');
-const adblockRetry = document.querySelector('#adblock-retry');
+// const adblockWarning = document.querySelector('#adblock-warning');
+// const adblockRetry = document.querySelector('#adblock-retry');
 
 const INITIALS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 const VOWELS = ['ㅏ', 'ㅏㅣ', 'ㅑ', 'ㅑㅣ', 'ㅓ', 'ㅓㅣ', 'ㅕ', 'ㅕㅣ', 'ㅗ', 'ㅗㅏ', 'ㅗㅏㅣ', 'ㅗㅣ', 'ㅛ', 'ㅜ', 'ㅜㅓ', 'ㅜㅓㅣ', 'ㅜㅣ', 'ㅠ', 'ㅡ', 'ㅡㅣ', 'ㅣ'];
@@ -296,8 +296,8 @@ Object.values(modes).forEach((state) => {
     render();
   });
 });
-function checkAdBlock() { const ad = document.querySelector('.kakao_ad_area'); adblockWarning.classList.toggle('visible', !ad || getComputedStyle(ad).display === 'none' || ad.offsetHeight === 0); }
-adblockRetry.addEventListener('click', () => window.location.reload()); window.setTimeout(checkAdBlock, 4000);
+// function checkAdBlock() { const ad = document.querySelector('.kakao_ad_area'); adblockWarning.classList.toggle('visible', !ad || getComputedStyle(ad).display === 'none' || ad.offsetHeight === 0); }
+// adblockRetry.addEventListener('click', () => window.location.reload()); window.setTimeout(checkAdBlock, 4000);
 buildInputs('helper'); buildInputs('game'); loadWords(activeLength);
 fetch('./제외품사_단어목록.txt').then((response) => response.ok ? response.text() : Promise.reject()).then((text) => {
   excludedWords = new Set(text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean));
