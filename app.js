@@ -23,6 +23,11 @@ const gameModeToggle = document.querySelector('#game-mode');
 const lengthOptions = [...document.querySelectorAll('.length-option')];
 const resultsTitle = document.querySelector('#results-title');
 const results = document.querySelector('#results');
+const bestTitle = document.querySelector('#best-title');
+const bestResults = document.querySelector('#best-results');
+const exploreTitle = document.querySelector('#explore-title');
+const exploreStatus = document.querySelector('#explore-status');
+const exploreResults = document.querySelector('#explore-results');
 const excludeParts = document.querySelector('#exclude-parts');
 // const adblockWarning = document.querySelector('#adblock-warning');
 // const adblockRetry = document.querySelector('#adblock-retry');
@@ -33,12 +38,31 @@ const FINALS = ['', 'ㄱ', 'ㄱㄱ', 'ㄱㅅ', 'ㄴ', 'ㄴㅈ', 'ㄴㅎ', 'ㄷ',
 const VALID_JAMO = new Set([...INITIALS, ...VOWELS.flatMap((vowel) => [...vowel]), ...FINALS.flatMap((final) => [...final])]);
 const INITIAL_EXPANSION = { 'ㄲ': 'ㄱㄱ', 'ㄸ': 'ㄷㄷ', 'ㅃ': 'ㅂㅂ', 'ㅆ': 'ㅅㅅ', 'ㅉ': 'ㅈㅈ' };
 
+// 탐색 추천 가중치/성능 상수 — 튜닝 시 여기만 수정
+const EXPLORE_TOP_N = 5;
+const EXPLORE_DEBOUNCE_MS = 200;
+const EXPLORE_CHUNK = 400;
+const EXPLORE_SAMPLE_CAP = 1200;
+const EXPLORE_W_WORST = 0.5;   // 최악의 경우에도 제거되는 후보 비율
+const EXPLORE_W_NEW = 0.3;     // 아직 입력해보지 않은 자모 비율
+const EXPLORE_W_DUP = 0.25;    // 단어 내 중복 자모 1개당 패널티
+const EXPLORE_W_RARE = 0.4;    // 사전 내 자모 빈도 기반 희귀도 패널티
+
 let activeMode = 'helper';
 let activeLength = 5;
 let words = [];
 let excludedWords = new Set();
 let excludedLoaded = false;
 let loadId = 0;
+
+const decomposeCache = new Map();
+const explore = { items: [], matches: null, show: false, computing: false, token: 0, timer: null };
+
+function decomposeCached(word) {
+  let decomposed = decomposeCache.get(word);
+  if (!decomposed) { decomposed = decomposeWord(word); decomposeCache.set(word, decomposed); }
+  return decomposed;
+}
 
 function stateOf(mode = activeMode) { return modes[mode]; }
 function decomposeWord(word) {
@@ -99,6 +123,13 @@ function render() {
   if (activeMode === 'game') {
     resultsTitle.hidden = true;
     results.replaceChildren();
+    explore.token += 1;
+    clearTimeout(explore.timer);
+    explore.show = false;
+    explore.computing = false;
+    explore.matches = null;
+    renderBest([]);
+    renderExplore();
     state.clear.textContent = state.over ? '새 게임' : '포기하기';
     state.status.textContent = state.message || `${state.attempts} / 6회 시도`;
     return;
@@ -106,7 +137,7 @@ function render() {
   resultsTitle.hidden = false;
   const conditions = state.inputs.map((input) => input.value);
   const hasConditions = conditions.some(Boolean);
-  const availableWords = words.map((word) => ({ word, decomposed: decomposeWord(word) })).filter(({ word, decomposed }) => {
+  const availableWords = words.map((word) => ({ word, decomposed: decomposeCached(word) })).filter(({ word, decomposed }) => {
     if (excludeParts.checked && excludedWords.has(word)) return false;
     return decomposed.length === activeLength;
   });
@@ -123,21 +154,10 @@ function render() {
       return score(b) - score(a) || a.word.localeCompare(b.word);
     });
   }
-  const shown = matches.slice(0, 10).map(({ word }) => word);
-  results.replaceChildren();
-  if (!shown.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.textContent = words.length ? '조건에 맞는 단어가 없습니다.' : '단어 목록을 불러오는 중...';
-    results.append(empty);
-  } else shown.forEach((word) => {
-    const item = document.createElement('button');
-    item.type = 'button'; item.className = 'result'; item.textContent = word;
-    item.title = '클릭해서 현재 입력칸에 채우기';
-    item.addEventListener('click', () => fillCurrent(word));
-    results.append(item);
-  });
-  state.status.textContent = words.length ? `${shown.length}개 표시 (최대 10개)` : '단어 목록을 불러오는 중...';
+  explore.matches = matches;
+  const shown = renderCandidateList(matches);
+  state.status.textContent = words.length ? `${shown.length}개 표시 (최대 5개)` : '단어 목록을 불러오는 중...';
+  scheduleExplore(hasConditions || state.historyRows.length ? matches : []);
 }
 
 function setActiveInput(mode, index) {
@@ -270,9 +290,146 @@ function setMode(game) {
   if (game && !modes.game.targetWord && !modes.game.over) chooseTarget();
   render();
 }
+function scoreExploreWord(word, targets, tested, freq) {
+  const guess = decomposeCached(word);
+  const groups = new Map();
+  for (const target of targets) {
+    const feedback = getFeedback(guess, target);
+    let key = '';
+    for (const state of feedback) key += state === 'green' ? '2' : state === 'yellow' ? '1' : '0';
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+  const total = targets.length;
+  let entropy = 0, maxGroup = 0;
+  for (const count of groups.values()) {
+    const p = count / total;
+    entropy -= p * Math.log2(p);
+    if (count > maxGroup) maxGroup = count;
+  }
+  const unique = new Set(guess);
+  let newCount = 0, rareness = 0;
+  for (const jamo of unique) {
+    if (!tested.has(jamo)) newCount += 1;
+    rareness += 1 - (freq.get(jamo) || 0);
+  }
+  rareness /= unique.size;
+  const score = entropy
+    + EXPLORE_W_WORST * (1 - maxGroup / total)
+    + EXPLORE_W_NEW * (newCount / unique.size)
+    - EXPLORE_W_DUP * (guess.length - unique.size)
+    - EXPLORE_W_RARE * rareness;
+  return { word, score, entropy, worst: maxGroup };
+}
+function scheduleExplore(candidates) {
+  explore.token += 1;
+  clearTimeout(explore.timer);
+  if (activeMode !== 'helper' || candidates.length < 2) {
+    explore.items = []; explore.show = false; explore.computing = false; explore.matches = null;
+    renderBest([]);
+    renderExplore();
+    return;
+  }
+  explore.show = true; explore.computing = true;
+  renderExplore();
+  explore.timer = setTimeout(() => runExplore(explore.token, candidates), EXPLORE_DEBOUNCE_MS);
+}
+function runExplore(token, candidates) {
+  const pool = words.filter((word) => decomposeCached(word).length === activeLength);
+  const sample = candidates.length > EXPLORE_SAMPLE_CAP
+    ? candidates.filter((_, index) => index % Math.ceil(candidates.length / EXPLORE_SAMPLE_CAP) === 0)
+    : candidates;
+  const targets = sample.map((candidate) => candidate.decomposed);
+  const total = targets.length;
+  const freq = new Map();
+  for (const word of pool) for (const jamo of new Set(decomposeCached(word))) freq.set(jamo, (freq.get(jamo) || 0) + 1 / pool.length);
+  const tested = new Set();
+  for (const row of modes.helper.historyRows) for (const value of row.values) if (value) tested.add(value);
+  for (const input of modes.helper.inputs) if (input.value) tested.add(input.value);
+  const scored = [];
+  let index = 0;
+  const step = () => {
+    if (token !== explore.token) return;
+    const end = Math.min(index + EXPLORE_CHUNK, pool.length);
+    for (; index < end; index += 1) scored.push(scoreExploreWord(pool[index], targets, tested, freq));
+    if (index < pool.length) { setTimeout(step, 0); return; }
+    scored.sort((a, b) => b.score - a.score || a.word.localeCompare(b.word));
+    explore.items = scored.slice(0, EXPLORE_TOP_N + 3);
+    explore.computing = false;
+    if (explore.show && explore.matches) renderCandidateList(explore.matches);
+    renderExplore();
+  };
+  step();
+}
+function getPromotedWords(matches) {
+  if (!matches || !explore.items.length) return [];
+  const candidateSet = new Set(matches.map((candidate) => candidate.word));
+  return explore.items.filter((item) => candidateSet.has(item.word)).slice(0, 3).map((item) => item.word);
+}
+function renderBest(promoted) {
+  bestResults.replaceChildren();
+  bestTitle.hidden = !promoted.length;
+  promoted.forEach((word) => {
+    const element = document.createElement('button');
+    element.type = 'button'; element.className = 'result best'; element.textContent = word;
+    element.title = '클릭해서 현재 입력칸에 채우기';
+    element.addEventListener('click', () => fillCurrent(word));
+    bestResults.append(element);
+  });
+}
+function renderCandidateList(matches) {
+  const promoted = getPromotedWords(matches);
+  const promotedSet = new Set(promoted);
+  renderBest(promoted);
+  const shown = matches.filter(({ word }) => !promotedSet.has(word)).slice(0, 5).map(({ word }) => word);
+  results.replaceChildren();
+  if (!shown.length) {
+    if (promoted.length) return shown;
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = words.length ? '조건에 맞는 단어가 없습니다.' : '단어 목록을 불러오는 중...';
+    results.append(empty);
+  } else shown.forEach((word) => {
+    const item = document.createElement('button');
+    item.type = 'button'; item.className = 'result'; item.textContent = word;
+    item.title = '클릭해서 현재 입력칸에 채우기';
+    item.addEventListener('click', () => fillCurrent(word));
+    results.append(item);
+  });
+  return shown;
+}
+function renderExplore() {
+  exploreResults.replaceChildren();
+  exploreTitle.hidden = !explore.show;
+  if (!explore.show) return;
+  exploreStatus.textContent = explore.computing ? '계산 중…' : '';
+  const promotedSet = new Set(getPromotedWords(explore.matches));
+  explore.items.filter((item) => !promotedSet.has(item.word)).slice(0, EXPLORE_TOP_N).forEach((item, rank) => {
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'result';
+    element.title = '클릭해서 현재 입력칸에 채우기';
+    const label = document.createElement('span');
+    label.textContent = `${rank + 1}. ${item.word}`;
+    const meta = document.createElement('span');
+    meta.className = 'explore-meta';
+    meta.textContent = `정보량 ${item.entropy.toFixed(2)} · 최악 ${item.worst}개`;
+    element.append(label, meta);
+    element.addEventListener('click', () => fillCurrent(item.word));
+    exploreResults.append(element);
+  });
+}
+const RAW_BASE = 'https://raw.githubusercontent.com/chu-rit/k-woodle/main/';
+async function fetchWordList(name) {
+  if (location.protocol !== 'file:') {
+    try { const response = await fetch(`./${name}`); if (response.ok) return await response.text(); } catch {}
+  }
+  const response = await fetch(`${RAW_BASE}${name}`);
+  if (!response.ok) throw new Error();
+  return response.text();
+}
 async function loadWords(length) {
   const currentLoad = ++loadId; words = []; render();
-  try { const response = await fetch(`./${length}자모_단어목록.txt`); if (!response.ok) throw new Error(); const text = await response.text(); if (currentLoad !== loadId) return; words = text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean); if (activeMode === 'game' && !modes.game.targetWord && !modes.game.over) chooseTarget(); render(); }
+  try { const text = await fetchWordList(`${length}자모_단어목록.txt`); if (currentLoad !== loadId) return; words = text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean); if (activeMode === 'game' && !modes.game.targetWord && !modes.game.over) chooseTarget(); render(); }
   catch { if (currentLoad !== loadId) return; stateOf().status.textContent = '단어 목록을 불러오지 못했습니다.'; }
 }
 function setLength(length) { activeLength = length; modes.helper.historyRows = []; modes.game.historyRows = []; modes.game.attempts = 0; modes.game.over = false; modes.game.message = ''; modes.game.targetWord = null; buildInputs('helper'); buildInputs('game'); lengthOptions.forEach((option) => option.classList.toggle('active', Number(option.dataset.length) === length)); loadWords(length); }
@@ -299,7 +456,7 @@ Object.values(modes).forEach((state) => {
 // function checkAdBlock() { const ad = document.querySelector('.kakao_ad_area'); adblockWarning.classList.toggle('visible', !ad || getComputedStyle(ad).display === 'none' || ad.offsetHeight === 0); }
 // adblockRetry.addEventListener('click', () => window.location.reload()); window.setTimeout(checkAdBlock, 4000);
 buildInputs('helper'); buildInputs('game'); loadWords(activeLength);
-fetch('./제외품사_단어목록.txt').then((response) => response.ok ? response.text() : Promise.reject()).then((text) => {
+fetchWordList('제외품사_단어목록.txt').then((text) => {
   excludedWords = new Set(text.split(/\r?\n/).map((word) => word.trim()).filter(Boolean));
   excludedLoaded = true;
   if (activeMode === 'game' && !modes.game.targetWord && !modes.game.over) chooseTarget();

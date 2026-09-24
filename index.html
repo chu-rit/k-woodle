@@ -42,7 +42,10 @@
     button:hover { background: #dfe7ee; }
     #status, .game-status { color: #62707c; font-size: .88rem; }
     .results-title { margin: 28px 0 10px; font-size: 1rem; }
-    #results { display: grid; gap: 8px; }
+    #results, #explore-results, #best-results { display: grid; gap: 8px; }
+    .result.best { border-color: #2f80ed; background: #eaf3ff; font-weight: 700; }
+    #explore-status { margin-left: 6px; color: #7b8791; font-size: .78rem; font-weight: 400; }
+    .explore-meta { float: right; color: #7b8791; font-size: .82rem; letter-spacing: 0; }
     .result { width: 100%; padding: 13px 16px; border: 1px solid #e1e6eb; border-radius: 10px; background: #fff; color: #17212b; font-size: 1.1rem; letter-spacing: .08em; text-align: left; }
     .result:hover { background: #f0f6ff; border-color: #2f80ed; }
     .empty { padding: 22px 12px; color: #7b8791; text-align: center; background: #fff; border: 1px dashed #d6dde3; border-radius: 10px; }
@@ -68,7 +71,9 @@
         <div class="actions"><span id="game-status" class="game-status">게임을 준비하는 중...</span><div><button id="game-submit" type="button">입력</button><button id="game-clear" type="button">새 게임</button></div></div>
       </div>
     </section>
-    <h2 id="results-title" class="results-title">추천 단어</h2><div id="results" aria-live="polite"></div>
+    <h2 id="best-title" class="results-title" hidden>⭐ 강력추천 단어</h2><div id="best-results" aria-live="polite"></div>
+    <h2 id="results-title" class="results-title">🎯 정답 후보</h2><div id="results" aria-live="polite"></div>
+    <h2 id="explore-title" class="results-title" hidden>🔎 후보 추리기 추천<span id="explore-status"></span></h2><div id="explore-results" aria-live="polite"></div>
   </main>
   <script src="app.js"></script>
 </body>
